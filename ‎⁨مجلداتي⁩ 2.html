@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>مجلداتي</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{
+    --bg:#1c1b1a;
+    --surface:#262422;
+    --surface-2:#302d29;
+    --line:#3a3632;
+    --accent:#d4a34e;
+    --accent-dim:#8a6f3c;
+    --text:#f2ede4;
+    --muted:#9c948a;
+    --danger:#c1584b;
+    --radius:18px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system, BlinkMacSystemFont, 'SF Arabic', 'Segoe UI', sans-serif;
+    overflow-x:hidden;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #app{max-width:560px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column;}
+
+  header.bar{
+    position:sticky; top:0; z-index:20;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 20px 14px;
+    background:linear-gradient(var(--bg) 70%, transparent);
+  }
+  .bar-title{display:flex; flex-direction:column; gap:2px;}
+  .bar-title .eyebrow{font-size:12px; color:var(--accent); letter-spacing:.5px; font-weight:700;}
+  .bar-title h1{margin:0; font-size:26px; font-weight:900;}
+  .icon-btn{
+    width:44px; height:44px; border-radius:50%;
+    background:var(--surface); border:1px solid var(--line);
+    color:var(--accent); font-size:24px; font-weight:700;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; user-select:none; transition:transform .15s ease, background .15s ease;
+  }
+  .icon-btn:active{transform:scale(.9); background:var(--surface-2);}
+  .icon-btn.ghost{background:transparent; border:none; color:var(--text); font-size:22px;}
+
+  main{flex:1; padding:4px 20px 40px;}
+
+  /* ----- Folder list (home) ----- */
+  .folder-list{display:flex; flex-direction:column; gap:12px; margin-top:8px;}
+  .folder-card{
+    position:relative;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px 18px;
+    display:flex; align-items:center; gap:14px;
+    cursor:pointer;
+    overflow:hidden;
+  }
+  .folder-card::before{
+    content:"";
+    position:absolute; inset-inline-start:0; top:0; bottom:0;
+    width:5px; background:var(--accent);
+    opacity:.85;
+  }
+  .folder-thumb{
+    width:52px; height:52px; border-radius:12px;
+    background:var(--surface-2);
+    display:flex; align-items:center; justify-content:center;
+    font-size:22px; color:var(--accent-dim);
+    overflow:hidden; flex-shrink:0;
+  }
+  .folder-thumb img{width:100%; height:100%; object-fit:cover;}
+  .folder-meta{flex:1; min-width:0;}
+  .folder-meta .name{font-size:17px; font-weight:700; margin:0 0 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .folder-meta .count{font-size:13px; color:var(--muted);}
+  .folder-del{
+    width:34px; height:34px; border-radius:50%;
+    color:var(--muted); font-size:16px;
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+  .folder-del:active{color:var(--danger);}
+
+  .empty{
+    margin-top:18vh;
+    text-align:center;
+    color:var(--muted);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+  }
+  .empty .glyph{font-size:40px; color:var(--accent-dim);}
+  .empty .cta{
+    margin-top:6px; padding:11px 22px; border-radius:999px;
+    background:var(--accent); color:#241d0f; font-weight:700; font-size:14px;
+    cursor:pointer; border:none;
+  }
+
+  /* ----- Grid inside a folder ----- */
+  .grid{
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;
+    margin-top:10px;
+  }
+  .tile{
+    position:relative; aspect-ratio:1/1; border-radius:10px;
+    overflow:hidden; background:var(--surface); cursor:pointer;
+  }
+  .tile img, .tile video{width:100%; height:100%; object-fit:cover; display:block;}
+  .tile .vid-badge{
+    position:absolute; bottom:5px; inset-inline-end:5px;
+    background:rgba(0,0,0,.55); border-radius:6px;
+    padding:2px 6px; font-size:11px; color:#fff;
+  }
+
+  /* ----- Modal / sheet ----- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.55);
+    display:flex; align-items:flex-end; justify-content:center;
+    z-index:50; opacity:0; pointer-events:none; transition:opacity .2s ease;
+  }
+  .overlay.show{opacity:1; pointer-events:auto;}
+  .sheet{
+    width:100%; max-width:560px;
+    background:var(--surface); border-radius:22px 22px 0 0;
+    padding:22px 22px calc(22px + env(safe-area-inset-bottom));
+    transform:translateY(100%); transition:transform .25s ease;
+  }
+  .overlay.show .sheet{transform:translateY(0);}
+  .sheet h2{margin:0 0 14px; font-size:18px; font-weight:700;}
+  .sheet input[type=text]{
+    width:100%; padding:13px 14px; border-radius:12px;
+    background:var(--surface-2); border:1px solid var(--line);
+    color:var(--text); font-family:inherit; font-size:16px; outline:none;
+  }
+  .sheet input[type=text]:focus{border-color:var(--accent);}
+  .sheet-actions{display:flex; gap:10px; margin-top:16px;}
+  .btn{
+    flex:1; padding:12px; border-radius:12px; border:none;
+    font-family:inherit; font-size:15px; font-weight:700; cursor:pointer;
+  }
+  .btn.primary{background:var(--accent); color:#241d0f;}
+  .btn.secondary{background:var(--surface-2); color:var(--text);}
+  .btn.danger{background:var(--danger); color:#fff;}
+
+  /* ----- Full viewer ----- */
+  .viewer{
+    position:fixed; inset:0; background:#000; z-index:60;
+    display:flex; flex-direction:column;
+    opacity:0; pointer-events:none; transition:opacity .2s ease;
+  }
+  .viewer.show{opacity:1; pointer-events:auto;}
+  .viewer-bar{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:16px 18px; padding-top:calc(16px + env(safe-area-inset-top));
+  }
+  .viewer-media{flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden;}
+  .viewer-media img, .viewer-media video{max-width:100%; max-height:100%; object-fit:contain;}
+
+  input[type=file]{display:none;}
+
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    background:var(--surface-2); color:var(--text); border:1px solid var(--line);
+    padding:10px 18px; border-radius:999px; font-size:13px; z-index:80;
+    opacity:0; transition:opacity .25s ease; pointer-events:none;
+  }
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="bar" id="topbar"></header>
+  <main id="main"></main>
+
+  <div class="overlay" id="overlay">
+    <div class="sheet" id="sheet"></div>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <div class="viewer-bar">
+      <div class="icon-btn ghost" id="viewerClose">✕</div>
+      <div class="icon-btn ghost" id="viewerDelete" style="color:var(--danger)">🗑</div>
+    </div>
+    <div class="viewer-media" id="viewerMedia"></div>
+  </div>
+
+  <input type="file" id="filePicker" accept="image/*,video/*" multiple>
+  <input type="file" id="backupPicker" accept=".zip">
+  <div class="toast" id="toast"></div>
+  <div class="overlay" id="progressOverlay">
+    <div class="sheet" id="progressSheet" style="text-align:center;">
+      <h2 id="progressText">جاري العمل...</h2>
+      <p style="color:var(--muted); font-size:13px;" id="progressSub"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- IndexedDB layer ---------------- */
+const DB_NAME = "myFoldersApp";
+const DB_VERSION = 1;
+let db;
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e)=>{
+      const d = e.target.result;
+      if(!d.objectStoreNames.contains("folders")){
+        const fs = d.createObjectStore("folders", {keyPath:"id"});
+        fs.createIndex("createdAt","createdAt");
+      }
+      if(!d.objectStoreNames.contains("media")){
+        const ms = d.createObjectStore("media", {keyPath:"id"});
+        ms.createIndex("folderId","folderId");
+      }
+    };
+    req.onsuccess = ()=>{ db = req.result; resolve(db); };
+    req.onerror = ()=> reject(req.error);
+  });
+}
+
+function tx(store, mode){ return db.transaction(store, mode).objectStore(store); }
+
+function addFolder(name){
+  return new Promise((resolve)=>{
+    const folder = {id: crypto.randomUUID(), name, createdAt: Date.now()};
+    tx("folders","readwrite").add(folder).onsuccess = ()=> resolve(folder);
+  });
+}
+function getFolders(){
+  return new Promise((resolve)=>{
+    const items = [];
+    tx("folders","readonly").openCursor().onsuccess = (e)=>{
+      const c = e.target.result;
+      if(c){ items.push(c.value); c.continue(); }
+      else resolve(items.sort((a,b)=>b.createdAt-a.createdAt));
+    };
+  });
+}
+function deleteFolder(id){
+  return new Promise((resolve)=>{
+    const mstore = tx("media","readwrite");
+    mstore.index("folderId").openCursor(IDBKeyRange.only(id)).onsuccess = (e)=>{
+      const c = e.target.result;
+      if(c){ c.delete(); c.continue(); }
+    };
+    tx("folders","readwrite").delete(id).onsuccess = ()=> resolve();
+  });
+}
+function addMedia(folderId, file){
+  return new Promise((resolve)=>{
+    const item = {
+      id: crypto.randomUUID(), folderId,
+      type: file.type.startsWith("video") ? "video" : "image",
+      name: file.name, blob: file, createdAt: Date.now()
+    };
+    tx("media","readwrite").add(item).onsuccess = ()=> resolve(item);
+  });
+}
+function getMedia(folderId){
+  return new Promise((resolve)=>{
+    const items = [];
+    tx("media","readonly").index("folderId").openCursor(IDBKeyRange.only(folderId)).onsuccess=(e)=>{
+      const c = e.target.result;
+      if(c){ items.push(c.value); c.continue(); }
+      else resolve(items.sort((a,b)=>b.createdAt-a.createdAt));
+    };
+  });
+}
+function deleteMedia(id){
+  return new Promise((resolve)=>{
+    tx("media","readwrite").delete(id).onsuccess = ()=> resolve();
+  });
+}
+
+/* ---------------- App state / routing ---------------- */
+let route = {name:"home"};
+const topbar = document.getElementById("topbar");
+const main = document.getElementById("main");
+const overlay = document.getElementById("overlay");
+const sheet = document.getElementById("sheet");
+const filePicker = document.getElementById("filePicker");
+const backupPicker = document.getElementById("backupPicker");
+const toastEl = document.getElementById("toast");
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add("show");
+  setTimeout(()=> toastEl.classList.remove("show"), 1600);
+}
+function closeSheet(){ overlay.classList.remove("show"); setTimeout(()=> sheet.innerHTML="", 200); }
+function openSheet(html){ sheet.innerHTML = html; overlay.classList.add("show"); }
+overlay.addEventListener("click",(e)=>{ if(e.target === overlay) closeSheet(); });
+
+async function render(){
+  if(route.name === "home") await renderHome();
+  else await renderFolder(route.id);
+}
+
+async function renderHome(){
+  topbar.innerHTML = `
+    <div class="bar-title">
+      <span class="eyebrow">مساحتي الخاصة</span>
+      <h1>مجلداتي</h1>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <div class="icon-btn" id="backupMenuBtn" style="font-size:18px;">☁️</div>
+      <div class="icon-btn" id="addFolderBtn">＋</div>
+    </div>
+  `;
+  document.getElementById("addFolderBtn").onclick = showNewFolderSheet;
+  document.getElementById("backupMenuBtn").onclick = showBackupSheet;
+
+  const folders = await getFolders();
+  if(folders.length === 0){
+    main.innerHTML = `
+      <div class="empty">
+        <div class="glyph">🗂️</div>
+        <div>ما عندك مجلدات بعد</div>
+        <button class="cta" id="emptyCreate">أنشئ أول مجلد</button>
+      </div>`;
+    document.getElementById("emptyCreate").onclick = showNewFolderSheet;
+    return;
+  }
+
+  const rows = await Promise.all(folders.map(async f=>{
+    const media = await getMedia(f.id);
+    const cover = media.find(m=>m.type==="image");
+    const thumb = cover ? `<img src="${URL.createObjectURL(cover.blob)}">` : "📁";
+    return `
+      <div class="folder-card" data-id="${f.id}">
+        <div class="folder-thumb">${thumb}</div>
+        <div class="folder-meta">
+          <p class="name">${escapeHtml(f.name)}</p>
+          <p class="count">${media.length} عنصر</p>
+        </div>
+        <div class="icon-btn folder-del" data-del="${f.id}">🗑</div>
+      </div>`;
+  }));
+  main.innerHTML = `<div class="folder-list">${rows.join("")}</div>`;
+
+  main.querySelectorAll(".folder-card").forEach(card=>{
+    card.addEventListener("click",(e)=>{
+      if(e.target.closest(".folder-del")) return;
+      route = {name:"folder", id: card.dataset.id};
+      render();
+    });
+  });
+  main.querySelectorAll(".folder-del").forEach(btn=>{
+    btn.addEventListener("click",(e)=>{
+      e.stopPropagation();
+      confirmDeleteFolder(btn.dataset.del);
+    });
+  });
+}
+
+function showNewFolderSheet(){
+  openSheet(`
+    <h2>مجلد جديد</h2>
+    <input type="text" id="folderNameInput" placeholder="اسم المجلد" maxlength="40">
+    <div class="sheet-actions">
+      <button class="btn secondary" id="cancelBtn">إلغاء</button>
+      <button class="btn primary" id="createBtn">إنشاء</button>
+    </div>
+  `);
+  const input = document.getElementById("folderNameInput");
+  setTimeout(()=> input.focus(), 150);
+  document.getElementById("cancelBtn").onclick = closeSheet;
+  document.getElementById("createBtn").onclick = async ()=>{
+    const name = input.value.trim();
+    if(!name){ toast("اكتب اسم للمجلد"); return; }
+    await addFolder(name);
+    closeSheet();
+    render();
+  };
+  input.addEventListener("keydown",(e)=>{ if(e.key==="Enter") document.getElementById("createBtn").click(); });
+}
+
+function showBackupSheet(){
+  openSheet(`
+    <h2>النسخ الاحتياطي</h2>
+    <p style="color:var(--muted); margin-top:-6px; font-size:13px;">خذ نسخة من كل مجلداتك وصورك بملف واحد، أو رجّع نسخة قديمة.</p>
+    <div class="sheet-actions" style="flex-direction:column;">
+      <button class="btn primary" id="exportBtn" style="width:100%;">📤 تصدير نسخة احتياطية</button>
+      <button class="btn secondary" id="importBtn" style="width:100%;">📥 استيراد نسخة احتياطية</button>
+    </div>
+  `);
+  document.getElementById("exportBtn").onclick = ()=>{ closeSheet(); exportBackup(); };
+  document.getElementById("importBtn").onclick = ()=>{ closeSheet(); backupPicker.click(); };
+}
+
+function showProgress(text, sub){
+  document.getElementById("progressText").textContent = text;
+  document.getElementById("progressSub").textContent = sub || "";
+  document.getElementById("progressOverlay").classList.add("show");
+}
+function hideProgress(){
+  document.getElementById("progressOverlay").classList.remove("show");
+}
+
+async function exportBackup(){
+  if(typeof JSZip === "undefined"){
+    toast("النسخ الاحتياطي يحتاج نت أول مرة، جرب لما يتوفر عندك اتصال");
+    return;
+  }
+  showProgress("جاري تجهيز النسخة الاحتياطية...", "لا تقفل الصفحة");
+  try{
+    const zip = new JSZip();
+    const folders = await getFolders();
+    for(const folder of folders){
+      const safeName = folder.name.replace(/[\/\\?%*:|"<>]/g, "-") || "مجلد";
+      const media = await getMedia(folder.id);
+      const folderZip = zip.folder(safeName);
+      let i = 1;
+      for(const m of media){
+        const ext = m.type === "video" ? (m.name.split(".").pop() || "mp4") : (m.name.split(".").pop() || "jpg");
+        folderZip.file(`${String(i).padStart(3,"0")}.${ext}`, m.blob);
+        i++;
+      }
+    }
+    const blob = await zip.generateAsync({type:"blob"});
+    const fileName = `نسخة-احتياطية-${new Date().toISOString().slice(0,10)}.zip`;
+
+    if(navigator.canShare && navigator.canShare({files:[new File([blob], fileName, {type:"application/zip"})]})){
+      await navigator.share({
+        files:[new File([blob], fileName, {type:"application/zip"})],
+        title:"نسخة احتياطية"
+      });
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=> URL.revokeObjectURL(url), 5000);
+    }
+    hideProgress();
+    toast("تم تجهيز النسخة الاحتياطية");
+  }catch(err){
+    hideProgress();
+    toast("صار خطأ أثناء التصدير");
+    console.error(err);
+  }
+}
+
+document.getElementById("backupPicker").addEventListener("change", async (e)=>{
+  const file = e.target.files[0];
+  e.target.value = "";
+  if(!file) return;
+  if(typeof JSZip === "undefined"){
+    toast("استرجاع النسخة يحتاج نت أول مرة، جرب لما يتوفر عندك اتصال");
+    return;
+  }
+  showProgress("جاري استرجاع النسخة الاحتياطية...", "لا تقفل الصفحة");
+  try{
+    const zip = await JSZip.loadAsync(file);
+    const folderMap = {};
+    const entries = Object.values(zip.files).filter(f=>!f.dir);
+    for(const entry of entries){
+      const parts = entry.name.split("/");
+      if(parts.length < 2) continue;
+      const folderName = parts[0];
+      const fileName = parts[parts.length-1];
+      if(!folderMap[folderName]){
+        const newFolder = await addFolder(folderName);
+        folderMap[folderName] = newFolder.id;
+      }
+      const blob = await entry.async("blob");
+      const ext = fileName.split(".").pop().toLowerCase();
+      const isVideo = ["mp4","mov","m4v","webm"].includes(ext);
+      const typedBlob = new File([blob], fileName, {type: isVideo ? "video/"+ext : "image/"+ext});
+      await addMedia(folderMap[folderName], typedBlob);
+    }
+    hideProgress();
+    toast("تم استرجاع النسخة الاحتياطية");
+    render();
+  }catch(err){
+    hideProgress();
+    toast("الملف غير صالح أو تالف");
+    console.error(err);
+  }
+});
+
+function confirmDeleteFolder(id){
+  openSheet(`
+    <h2>حذف المجلد؟</h2>
+    <p style="color:var(--muted); margin-top:-6px;">بيتحذف كل الصور والفيديوهات اللي فيه.</p>
+    <div class="sheet-actions">
+      <button class="btn secondary" id="cancelBtn">إلغاء</button>
+      <button class="btn danger" id="delBtn">حذف</button>
+    </div>
+  `);
+  document.getElementById("cancelBtn").onclick = closeSheet;
+  document.getElementById("delBtn").onclick = async ()=>{
+    await deleteFolder(id);
+    closeSheet();
+    render();
+  };
+}
+
+async function renderFolder(id){
+  const folders = await getFolders();
+  const folder = folders.find(f=>f.id===id);
+  if(!folder){ route = {name:"home"}; return render(); }
+
+  topbar.innerHTML = `
+    <div class="icon-btn ghost" id="backBtn">→</div>
+    <div class="bar-title" style="align-items:center; text-align:center;">
+      <h1 style="font-size:19px;">${escapeHtml(folder.name)}</h1>
+    </div>
+    <div class="icon-btn" id="addMediaBtn">＋</div>
+  `;
+  document.getElementById("backBtn").onclick = ()=>{ route = {name:"home"}; render(); };
+  document.getElementById("addMediaBtn").onclick = ()=>{
+    filePicker.onchange = async ()=>{
+      const files = Array.from(filePicker.files);
+      if(files.length === 0) return;
+      for(const file of files) await addMedia(id, file);
+      filePicker.value = "";
+      toast(files.length > 1 ? "تمت إضافة العناصر" : "تمت الإضافة");
+      renderFolder(id);
+    };
+    filePicker.click();
+  };
+
+  const media = await getMedia(id);
+  if(media.length === 0){
+    main.innerHTML = `
+      <div class="empty">
+        <div class="glyph">🖼️</div>
+        <div>ما فيه صور أو فيديوهات هنا بعد</div>
+        <button class="cta" id="emptyAdd">أضف أول عنصر</button>
+      </div>`;
+    document.getElementById("emptyAdd").onclick = ()=> document.getElementById("addMediaBtn").click();
+    return;
+  }
+
+  main.innerHTML = `<div class="grid">${media.map(m=>{
+    const url = URL.createObjectURL(m.blob);
+    return m.type === "video"
+      ? `<div class="tile" data-id="${m.id}"><video src="${url}" muted playsinline></video><span class="vid-badge">▶</span></div>`
+      : `<div class="tile" data-id="${m.id}"><img src="${url}"></div>`;
+  }).join("")}</div>`;
+
+  main.querySelectorAll(".tile").forEach(tile=>{
+    tile.addEventListener("click", ()=> openViewer(media, tile.dataset.id, id));
+  });
+}
+
+/* ---------------- Full-screen viewer ---------------- */
+const viewer = document.getElementById("viewer");
+const viewerMedia = document.getElementById("viewerMedia");
+let currentViewerItem = null;
+let currentFolderId = null;
+
+function openViewer(mediaList, itemId, folderId){
+  const item = mediaList.find(m=>m.id===itemId);
+  if(!item) return;
+  currentViewerItem = item;
+  currentFolderId = folderId;
+  const url = URL.createObjectURL(item.blob);
+  viewerMedia.innerHTML = item.type === "video"
+    ? `<video src="${url}" controls playsinline autoplay></video>`
+    : `<img src="${url}">`;
+  viewer.classList.add("show");
+}
+document.getElementById("viewerClose").onclick = ()=>{
+  viewer.classList.remove("show");
+  viewerMedia.innerHTML = "";
+};
+document.getElementById("viewerDelete").onclick = async ()=>{
+  if(!currentViewerItem) return;
+  await deleteMedia(currentViewerItem.id);
+  viewer.classList.remove("show");
+  viewerMedia.innerHTML = "";
+  toast("تم الحذف");
+  renderFolder(currentFolderId);
+};
+
+function escapeHtml(str){
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+/* ---------------- Boot ---------------- */
+openDB().then(render);
+</script>
+</body>
+</html>
