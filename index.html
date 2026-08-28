@@ -161,8 +161,12 @@
     display:flex; justify-content:space-between; align-items:center;
     padding:16px 18px; padding-top:calc(16px + env(safe-area-inset-top));
   }
-  .viewer-media{flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden;}
+  .viewer-media{flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative;}
   .viewer-media img, .viewer-media video{max-width:100%; max-height:100%; object-fit:contain;}
+  .viewer-nav{
+    position:absolute; top:50%; transform:translateY(-50%);
+    background:rgba(0,0,0,.4); font-size:26px; z-index:5;
+  }
 
   input[type=file]{display:none;}
 
@@ -188,9 +192,16 @@
   <div class="viewer" id="viewer">
     <div class="viewer-bar">
       <div class="icon-btn ghost" id="viewerClose">✕</div>
-      <div class="icon-btn ghost" id="viewerDelete" style="color:var(--danger)">🗑</div>
+      <div style="display:flex; gap:8px;">
+        <div class="icon-btn ghost" id="viewerSave" style="font-size:19px;">⬇️</div>
+        <div class="icon-btn ghost" id="viewerDelete" style="color:var(--danger)">🗑</div>
+      </div>
     </div>
-    <div class="viewer-media" id="viewerMedia"></div>
+    <div class="viewer-media" id="viewerMedia">
+      <div id="viewerContent" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center;"></div>
+      <div class="icon-btn ghost viewer-nav" id="viewerPrevBtn" style="inset-inline-start:6px;">›</div>
+      <div class="icon-btn ghost viewer-nav" id="viewerNextBtn" style="inset-inline-end:6px;">‹</div>
+    </div>
   </div>
 
   <input type="file" id="filePicker" accept="image/*,video/*" multiple>
@@ -559,32 +570,102 @@ async function renderFolder(id){
 /* ---------------- Full-screen viewer ---------------- */
 const viewer = document.getElementById("viewer");
 const viewerMedia = document.getElementById("viewerMedia");
+const viewerContent = document.getElementById("viewerContent");
 let currentViewerItem = null;
 let currentFolderId = null;
+let viewerList = [];
+let viewerIndex = 0;
 
 function openViewer(mediaList, itemId, folderId){
-  const item = mediaList.find(m=>m.id===itemId);
-  if(!item) return;
-  currentViewerItem = item;
+  const idx = mediaList.findIndex(m=>m.id===itemId);
+  if(idx === -1) return;
+  viewerList = mediaList;
+  viewerIndex = idx;
   currentFolderId = folderId;
-  const url = URL.createObjectURL(item.blob);
-  viewerMedia.innerHTML = item.type === "video"
-    ? `<video src="${url}" controls playsinline autoplay></video>`
-    : `<img src="${url}">`;
+  showViewerItem();
   viewer.classList.add("show");
 }
+
+function showViewerItem(){
+  const item = viewerList[viewerIndex];
+  if(!item) return;
+  currentViewerItem = item;
+  const url = URL.createObjectURL(item.blob);
+  viewerContent.innerHTML = item.type === "video"
+    ? `<video src="${url}" controls playsinline autoplay></video>`
+    : `<img src="${url}">`;
+  const showArrows = viewerList.length > 1;
+  document.getElementById("viewerPrevBtn").style.display = showArrows ? "flex" : "none";
+  document.getElementById("viewerNextBtn").style.display = showArrows ? "flex" : "none";
+}
+
+function viewerNext(){
+  if(viewerList.length < 2) return;
+  viewerIndex = (viewerIndex + 1) % viewerList.length;
+  showViewerItem();
+}
+function viewerPrev(){
+  if(viewerList.length < 2) return;
+  viewerIndex = (viewerIndex - 1 + viewerList.length) % viewerList.length;
+  showViewerItem();
+}
+document.getElementById("viewerPrevBtn").onclick = viewerPrev;
+document.getElementById("viewerNextBtn").onclick = viewerNext;
+
+document.getElementById("viewerSave").onclick = async ()=>{
+  if(!currentViewerItem) return;
+  const item = currentViewerItem;
+  const ext = item.type === "video" ? (item.name.split(".").pop() || "mp4") : (item.name.split(".").pop() || "jpg");
+  const fileName = item.name || `ملف.${ext}`;
+  const file = new File([item.blob], fileName, {type: item.blob.type || (item.type === "video" ? "video/mp4" : "image/jpeg")});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file]});
+    } else {
+      const url = URL.createObjectURL(item.blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=> URL.revokeObjectURL(url), 5000);
+    }
+  }catch(err){
+    if(err.name !== "AbortError"){ toast("تعذر الحفظ، جرب الضغط المطول على الملف"); console.error(err); }
+  }
+};
 document.getElementById("viewerClose").onclick = ()=>{
   viewer.classList.remove("show");
-  viewerMedia.innerHTML = "";
+  viewerContent.innerHTML = "";
+  viewerList = [];
 };
 document.getElementById("viewerDelete").onclick = async ()=>{
   if(!currentViewerItem) return;
-  await deleteMedia(currentViewerItem.id);
-  viewer.classList.remove("show");
-  viewerMedia.innerHTML = "";
+  const deletedId = currentViewerItem.id;
+  await deleteMedia(deletedId);
+  viewerList = viewerList.filter(m=>m.id !== deletedId);
   toast("تم الحذف");
+  if(viewerList.length === 0){
+    viewer.classList.remove("show");
+    viewerContent.innerHTML = "";
+  } else {
+    if(viewerIndex >= viewerList.length) viewerIndex = viewerList.length - 1;
+    showViewerItem();
+  }
   renderFolder(currentFolderId);
 };
+
+/* Swipe gestures (RTL: swipe left = next item, swipe right = previous item) */
+let touchStartX = 0, touchStartY = 0;
+viewerMedia.addEventListener("touchstart", (e)=>{
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+}, {passive:true});
+viewerMedia.addEventListener("touchend", (e)=>{
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)){
+    if(dx < 0) viewerNext(); else viewerPrev();
+  }
+}, {passive:true});
 
 function escapeHtml(str){
   const d = document.createElement("div");
